@@ -23,7 +23,7 @@ function hasSupabaseConfig(): boolean {
 function getSupabase(remember: boolean): SupabaseClient | null {
   if (!hasSupabaseConfig()) return null;
   const storage = typeof window === "undefined" ? undefined : remember ? window.localStorage : window.sessionStorage;
-  return createClient(supabaseUrl, supabaseKey, {
+  return createClient(supabaseUrl!, supabaseKey!, {
     auth: { persistSession: remember, autoRefreshToken: true, detectSessionInUrl: true, storage },
   });
 }
@@ -78,15 +78,21 @@ export default function Home() {
     try {
       const result = mode === "login"
         ? await supabase.auth.signInWithPassword({ email, password })
-      : await supabase.auth.signUp({ email, password, options: { data: { full_name: fullName, user_type: registerType } } });
+      : await supabase.auth.signUp({ email, password, options: { data: {
+          full_name: fullName, user_type: registerType,
+          ...(registerType === "expert" ? {
+            specialty: String(data.get("specialty") ?? "Kesehatan Ikan").trim(),
+            qualification: String(data.get("qualification") ?? "").trim(),
+            experience_years: String(data.get("experienceYears") ?? "").trim(),
+            bio: String(data.get("bio") ?? "").trim(),
+          } : {}),
+        } } });
       if (result.error) throw result.error;
       if (mode === "login" || result.data.session) {
         router.replace(result.data.user?.user_metadata?.user_type === "expert" ? "/ahli" : "/beranda");
         return;
       }
-      setNotice(mode === "login"
-        ? { text: "Berhasil masuk. Sesi Anda sudah tersimpan.", kind: "success" }
-        : { text: result.data.session ? "Akun berhasil dibuat dan Anda sudah masuk." : "Akun berhasil dibuat. Periksa email untuk konfirmasi sebelum masuk.", kind: "success" });
+      setNotice({ text: "Akun berhasil dibuat. Periksa email untuk konfirmasi sebelum masuk.", kind: "success" });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Terjadi kesalahan. Coba lagi.";
       setNotice({ text: message === "Failed to fetch" ? "Tidak dapat terhubung ke Supabase. Periksa URL project dan publishable key di .env.local, lalu mulai ulang server." : message, kind: "error" });
@@ -142,7 +148,9 @@ export default function Home() {
           <p>{mode === "login" ? "Masuk untuk melanjutkan konsultasi kesehatan ikanmu." : "Daftarkan dirimu untuk mulai memantau kesehatan ikan."}</p>
         </div>
         <form onSubmit={handleSubmit} noValidate>
-          {mode === "register" && <><label htmlFor="fullName">Nama Lengkap</label><input id="fullName" name="fullName" type="text" autoComplete="name" placeholder="Masukkan nama lengkap" required /><label htmlFor="registerType">Daftar sebagai</label><select id="registerType" value={registerType} onChange={(event)=>setRegisterType(event.target.value)}><option value="beginner">Pengguna / Pemula</option><option value="hobbyist">Penghobi Ikan</option><option value="farmer">Pembudidaya</option><option value="expert">Ahli Ikan</option></select></>}
+          {mode === "register" && <><label htmlFor="fullName">Nama Lengkap</label><input id="fullName" name="fullName" type="text" autoComplete="name" placeholder="Masukkan nama lengkap" required /><label htmlFor="registerType">Daftar sebagai</label><select id="registerType" value={registerType} onChange={(event)=>setRegisterType(event.target.value)}><option value="beginner">Pengguna / Pemula</option><option value="hobbyist">Penghobi Ikan</option><option value="farmer">Pembudidaya</option><option value="expert">Ahli Ikan</option></select>
+            {registerType === "expert" && <div className="expert-register-fields"><label htmlFor="specialty">Bidang keahlian</label><input id="specialty" name="specialty" placeholder="Contoh: Kesehatan Ikan" required/><label htmlFor="qualification">Pendidikan / sertifikasi</label><input id="qualification" name="qualification" placeholder="Contoh: S.Pi, M.Si" required/><label htmlFor="experienceYears">Pengalaman (tahun)</label><input id="experienceYears" name="experienceYears" type="number" min="0" max="99" placeholder="Contoh: 5"/><label htmlFor="bio">Profil singkat</label><textarea id="bio" name="bio" placeholder="Ceritakan pengalaman dan fokus konsultasi" rows={3}/><small>Profil akan tampil sebagai menunggu verifikasi sampai diperiksa administrator.</small></div>}
+          </>}
           <label htmlFor="email">Email</label>
           <input id="email" name="email" type="email" autoComplete="email" placeholder="Masukkan email" required />
           <div className="label-row"><label htmlFor="password">Kata Sandi</label>

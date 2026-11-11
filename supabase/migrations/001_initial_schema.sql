@@ -25,8 +25,10 @@ create trigger on_auth_user_created
   for each row execute procedure public.handle_new_user();
 
 alter table public.profiles enable row level security;
+drop policy if exists "Users can view their own profile" on public.profiles;
 create policy "Users can view their own profile" on public.profiles
   for select to authenticated using ((select auth.uid()) = id);
+drop policy if exists "Users can update their own profile" on public.profiles;
 create policy "Users can update their own profile" on public.profiles
   for update to authenticated using ((select auth.uid()) = id)
   with check ((select auth.uid()) = id);
@@ -44,13 +46,17 @@ create table if not exists public.fish_tanks (
 );
 
 alter table public.fish_tanks enable row level security;
+drop policy if exists "Users can view their own tanks" on public.fish_tanks;
 create policy "Users can view their own tanks" on public.fish_tanks
   for select to authenticated using ((select auth.uid()) = user_id);
+drop policy if exists "Users can add their own tanks" on public.fish_tanks;
 create policy "Users can add their own tanks" on public.fish_tanks
   for insert to authenticated with check ((select auth.uid()) = user_id);
+drop policy if exists "Users can update their own tanks" on public.fish_tanks;
 create policy "Users can update their own tanks" on public.fish_tanks
   for update to authenticated using ((select auth.uid()) = user_id)
   with check ((select auth.uid()) = user_id);
+drop policy if exists "Users can delete their own tanks" on public.fish_tanks;
 create policy "Users can delete their own tanks" on public.fish_tanks
   for delete to authenticated using ((select auth.uid()) = user_id);
 grant select, insert, update, delete on public.fish_tanks to authenticated;

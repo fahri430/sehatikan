@@ -1,41 +1,32 @@
 "use client";
-
-import { FormEvent, useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import AppNav from "@/components/AppNav";
+import { getSupabase } from "@/lib/supabase";
 
-type Message = { from: "user" | "bot"; text: string; image?: string };
-const initial: Message[] = [
-  { from: "bot", text: "Contoh percakapan. Pesan dan foto di layar ini tidak benar-benar dikirim." },
-  { from: "user", text: "Ikan koi di Kolam A kurang aktif sejak kemarin dan nafsu makannya menurun. Apa yang perlu saya periksa?", image: "/assets/beranda-underwater.png" },
-  { from: "bot", text: "Terima kasih sudah bercerita. Kurang aktif dan nafsu makan menurun bisa berkaitan dengan stres, lingkungan, atau gangguan kesehatan. Gejala saja belum cukup untuk memastikan diagnosis.\n\nLangkah awal yang aman:\n1. Amati gerakan, napas, perubahan kulit, dan jumlah ikan terdampak.\n2. Periksa aerasi dan filter. Ukur suhu serta pH bila alat tersedia.\n3. Hindari perubahan air mendadak atau pemberian obat tanpa arahan ahli.\n\nJika kondisi memburuk, konsultasikan kepada ahli kesehatan ikan." },
-];
-
-export default function BotConversation() {
-  const router = useRouter();
-  const [messages, setMessages] = useState(initial);
-  const [text, setText] = useState("");
-  const [preview, setPreview] = useState<string | null>(null);
-  const inputFile = useRef<HTMLInputElement>(null);
-
-  function send(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!text.trim() && !preview) return;
-    setMessages((current) => [...current, { from: "user", text: text.trim() || "Foto ikan terlampir.", image: preview || undefined }]);
-    setText(""); setPreview(null);
-  }
-
-  function choosePhoto(file?: File) {
-    if (!file || !file.type.startsWith("image/")) return;
-    setPreview(URL.createObjectURL(file));
-  }
-
-  return <><AppNav active="konsultasi"/><main className="chat-page">
-    <header className="chat-header"><button onClick={() => router.push("/konsultasi")} aria-label="Kembali">←</button><div><h1>Konsultasi Bot AI</h1><span>Koi · Kolam A</span></div></header>
-    <div className="chat-water" aria-hidden="true"/>
-    <section className="chat-context"><span className="bot-avatar">🤖</span><span><strong>Koi · Kolam A</strong><small>AI · Informasi awal, bukan diagnosis</small></span></section>
-    <div className="chat-messages" aria-live="polite">{messages.map((message, i) => <article className={`chat-message ${message.from}`} key={i}>{message.from === "bot" && <span className="chat-bot-label">Bot AI SehatiKan</span>}<p>{message.text}</p>{message.image && <img className="chat-attachment" src={message.image} alt="Lampiran ikan"/>}</article>)}</div>
-    <aside className="chat-warning"><strong>Butuh penilaian lebih lanjut?</strong><p>Jika ikan megap-megap, muncul luka, atau kondisi memburuk, konsultasikan kepada ahli.</p><button className="primary" onClick={() => router.push("/konsultasi/ahli")}>Konsultasi Ahli</button></aside>
-    <form className="chat-composer" onSubmit={send}>{preview && <div className="upload-preview"><img src={preview} alt="Pratinjau foto"/><button type="button" onClick={() => setPreview(null)}>Hapus</button></div>}<div className="composer-row"><input value={text} onChange={(e) => setText(e.target.value)} placeholder="Tulis pesan..." aria-label="Tulis pesan"/><button className="send-button" type="submit" aria-label="Kirim pesan">↑</button></div><input ref={inputFile} type="file" accept="image/*" hidden onChange={(e) => choosePhoto(e.target.files?.[0])}/><button className="upload-button" type="button" onClick={() => inputFile.current?.click()}>+ Tambah / unggah foto</button><small>Kirim · Pratinjau saja, bukan layanan aktif.</small></form>
+type Message={id?:string;from:"user"|"bot";text:string;image?:string;imagePath?:string;imageName?:string};
+const bucket="ai-chat-attachments";
+function fileAsDataUrl(file:File){return new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result));reader.onerror=()=>reject(new Error("Foto gagal dibaca."));reader.readAsDataURL(file);});}
+export default function BotConversation(){
+  const router=useRouter(); const [messages,setMessages]=useState<Message[]>([]); const [conversationId,setConversationId]=useState(""); const [text,setText]=useState(""); const [preview,setPreview]=useState<string|null>(null); const [photo,setPhoto]=useState<File|null>(null); const [loading,setLoading]=useState(false); const [error,setError]=useState(""); const [historyReady,setHistoryReady]=useState(false); const inputFile=useRef<HTMLInputElement>(null);
+  useEffect(()=>{let alive=true;const requested=new URLSearchParams(window.location.search).get("conversation");if(!requested){setHistoryReady(true);return;} (async()=>{try{const db=getSupabase();const {data:auth}=await db.auth.getUser();if(!auth.user)throw new Error("Masuk kembali untuk membuka riwayat chat.");const {data:thread,error:threadError}=await db.from("ai_conversations").select("id").eq("id",requested).eq("user_id",auth.user.id).maybeSingle();if(threadError)throw threadError;if(!thread)throw new Error("Percakapan tidak ditemukan.");const {data,error:messageError}=await db.from("ai_messages").select("id,role,content,image_path,image_name").eq("conversation_id",requested).order("created_at");if(messageError)throw messageError;const loaded:Message[]=[];for(const m of data||[]){let image:string|undefined;if(m.image_path){const {data:signed}=await db.storage.from(bucket).createSignedUrl(m.image_path,3600);image=signed?.signedUrl;}loaded.push({id:m.id,from:m.role==="assistant"?"bot":"user",text:m.content,image,imagePath:m.image_path||undefined,imageName:m.image_name||undefined});}if(alive){setConversationId(requested);setMessages(loaded);}}catch(e){if(alive)setError(e instanceof Error?e.message:"Riwayat chat gagal dimuat.");}finally{if(alive)setHistoryReady(true);}})();return()=>{alive=false;}},[]);
+  async function send(event:FormEvent<HTMLFormElement>){event.preventDefault();if((!text.trim()&&!photo)||loading)return;setError("");setLoading(true);const typed=text.trim()||"Tolong analisis foto ikan ini dan beri panduan awal.";setText("");
+    try{const db=getSupabase();const {data:auth}=await db.auth.getUser();if(!auth.user)throw new Error("Sesi login tidak ditemukan. Silakan masuk kembali.");let activeId=conversationId;
+      if(!activeId){const {data:created,error:createError}=await db.from("ai_conversations").insert({user_id:auth.user.id,title:typed.slice(0,70)}).select("id").single();if(createError){const missing=createError.code==="PGRST205"||createError.code==="42P01";throw new Error(missing?"Tabel riwayat belum dibuat di Supabase. Jalankan seluruh supabase/SETUP_SEHATIKAN.sql di SQL Editor pada project yang URL-nya sama dengan .env.local, lalu muat ulang halaman.":`Gagal membuat riwayat chat: ${createError.message}`);}activeId=created.id;setConversationId(activeId);window.history.replaceState(null,"",`/konsultasi/bot?conversation=${activeId}`);}
+      let imageData:string|undefined;let imagePath:string|undefined;const currentPhoto=photo;if(currentPhoto){if(currentPhoto.size>5*1024*1024)throw new Error("Ukuran foto maksimal 5 MB.");if(!["image/jpeg","image/png","image/webp"].includes(currentPhoto.type))throw new Error("Gunakan foto JPG, PNG, atau WebP.");imageData=await fileAsDataUrl(currentPhoto);imagePath=`${auth.user.id}/${activeId}/${crypto.randomUUID()}-${currentPhoto.name.replace(/[^a-zA-Z0-9._-]/g,"_")}`;const {error:uploadError}=await db.storage.from(bucket).upload(imagePath,currentPhoto,{contentType:currentPhoto.type,upsert:false});if(uploadError)throw new Error(`Foto gagal disimpan: ${uploadError.message}`);}
+      const userMessage:Message={from:"user",text:typed,image:preview||undefined,imagePath,imageName:currentPhoto?.name};setMessages(prev=>[...prev,userMessage]);setPhoto(null);setPreview(null);if(inputFile.current)inputFile.current.value="";
+      const {data:prior,error:priorError}=await db.from("ai_messages").select("role,content").eq("conversation_id",activeId).order("created_at",{ascending:false}).limit(10);if(priorError)throw priorError;
+      const token=(await db.auth.getSession()).data.session?.access_token;if(!token)throw new Error("Sesi login tidak ditemukan.");const promptMessages=[...(prior||[]).reverse().map(m=>({role:m.role,content:m.content})),{role:"user",content:typed}];
+      const {error:saveUserError}=await db.from("ai_messages").insert({conversation_id:activeId,user_id:auth.user.id,role:"user",content:typed,image_path:imagePath,image_name:currentPhoto?.name||null});if(saveUserError)throw saveUserError;
+      const response=await fetch("/api/ai/chat",{method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${token}`},body:JSON.stringify({messages:promptMessages,image:imageData})});const result=await response.json();if(!response.ok)throw new Error(result.error||"AI belum dapat menjawab.");
+      const answer=String(result.answer);setMessages(prev=>[...prev,{from:"bot",text:answer}]);const {error:saveBotError}=await db.from("ai_messages").insert({conversation_id:activeId,user_id:auth.user.id,role:"assistant",content:answer});if(saveBotError)setError(`Jawaban tampil, tetapi belum tersimpan di riwayat: ${saveBotError.message}`);await db.from("ai_conversations").update({updated_at:new Date().toISOString()}).eq("id",activeId);
+    }catch(e){setError(e instanceof Error?e.message:"Tidak dapat menghubungi AI lokal.");}finally{setLoading(false);}}
+  function choosePhoto(file?:File){if(!file||!file.type.startsWith("image/"))return;if(preview)URL.revokeObjectURL(preview);setPhoto(file);setPreview(URL.createObjectURL(file));}
+  return <><AppNav active="konsultasi"/><main className="chat-page"><header className="chat-header"><button onClick={()=>router.push("/konsultasi")} aria-label="Kembali">←</button><div><h1>Konsultasi Bot AI</h1><span>AI lokal · Informasi awal, bukan diagnosis</span></div><button className="chat-history-link" onClick={()=>router.push("/konsultasi/bot/riwayat")}>Riwayat</button></header>
+    <div className="chat-water" aria-hidden="true"/><section className="chat-context"><span className="bot-avatar">🤖</span><span><strong>Asisten SehatiKan</strong><small>Berjalan di komputer Anda dengan llama.cpp</small></span></section>
+    <div className="chat-messages" aria-live="polite">{!historyReady&&<p className="expert-empty">Memuat percakapan…</p>}{historyReady&&!messages.length&&<article className="chat-message bot"><span className="chat-bot-label">Bot AI SehatiKan</span><p>Halo! Ceritakan jenis ikan, kondisi yang terlihat, dan sejak kapan gejalanya muncul. Anda juga dapat melampirkan foto ikan untuk dianalisis.</p></article>}{messages.map((m,i)=><article className={`chat-message ${m.from}`} key={m.id||i}>{m.from==="bot"&&<span className="chat-bot-label">Bot AI SehatiKan</span>}<p>{m.text}</p>{m.image&&<img className="chat-attachment" src={m.image} alt={m.imageName||"Foto kondisi ikan"}/>}</article>)}{loading&&<article className="chat-message bot"><span className="chat-bot-label">Bot AI SehatiKan</span><p>Sedang menganalisis…</p></article>}</div>
+    {error&&<div className="sample-note"><strong>{error.includes("Tabel riwayat")?"Database perlu diperbarui.":error.includes("belum aktif")?"Riwayat chat belum aktif.":"Pesan belum terkirim."}</strong><br/>{error}</div>}
+    <aside className="chat-warning"><strong>Butuh penilaian lebih lanjut?</strong><p>Jika ikan megap-megap, muncul luka, atau kondisi memburuk, konsultasikan kepada ahli.</p><button className="primary" onClick={()=>router.push("/konsultasi/ahli")}>Konsultasi Ahli</button></aside>
+    <form className="chat-composer" onSubmit={send}>{preview&&<div className="upload-preview"><img src={preview} alt="Pratinjau foto"/><button type="button" onClick={()=>{URL.revokeObjectURL(preview);setPreview(null);setPhoto(null);if(inputFile.current)inputFile.current.value="";}}>Hapus</button><small>Foto akan dikirim ke AI lokal untuk dianalisis.</small></div>}<div className="composer-row"><input value={text} onChange={e=>setText(e.target.value)} placeholder="Ceritakan kondisi ikan…" aria-label="Tulis pesan" disabled={loading}/><button className="send-button" type="submit" aria-label="Kirim pesan" disabled={loading||(!text.trim()&&!photo)}>{loading?"…":"↑"}</button></div><input ref={inputFile} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={e=>choosePhoto(e.target.files?.[0])}/><button className="upload-button" type="button" onClick={()=>inputFile.current?.click()}>+ Tambah / unggah foto</button></form>
   </main></>;
 }
