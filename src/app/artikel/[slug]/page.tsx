@@ -1,24 +1,13 @@
 "use client";
-
-import { useParams, useRouter } from "next/navigation";
-import { articles } from "@/lib/articles";
+import {FormEvent,useEffect,useState} from "react";
+import {useParams,useRouter} from "next/navigation";
+import {articles} from "@/lib/articles";
 import AppNav from "@/components/AppNav";
-
-export default function BacaArtikelPage() {
-  const { slug } = useParams<{ slug: string }>();
-  const router = useRouter();
-  const article = articles.find((item) => item.slug === slug);
-  if (!article) return <main className="article-not-found"><h1>Artikel tidak ditemukan</h1><button className="primary" onClick={() => router.push("/artikel")}>Kembali ke Artikel</button></main>;
-
-  return <><AppNav active="artikel"/><main className="read-article-page">
-    <header className="read-article-header"><button className="back-button" onClick={() => router.push("/artikel")} aria-label="Kembali">←</button><span>Artikel</span><button className="article-brand" onClick={() => router.push("/beranda")} aria-label="Ke Beranda"><img src="/assets/fish-mascot.png" alt=""/><strong>Sehati<span>Kan</span></strong></button></header>
-    <article className="article-content">
-      <div className="read-article-image" style={{ backgroundImage: `url("${article.image}")`, backgroundPosition: article.position }} />
-      <div className="article-content-inner"><span className="article-category-label">{article.category}</span><h1>{article.title}</h1><p className="article-date">{article.date} · 4 menit membaca</p><p className="article-lead">{article.excerpt}</p>
-        {article.paragraphs.map((paragraph, index) => <p key={index}>{paragraph}</p>)}
-        <aside className="article-disclaimer">Informasi ini bersifat edukatif dan bukan pengganti diagnosis atau saran dari ahli kesehatan ikan.</aside>
-        <button className="back-to-articles" onClick={() => router.push("/artikel")}>← Kembali ke daftar artikel</button>
-      </div>
-    </article>
-  </main></>;
-}
+import {getSupabase} from "@/lib/supabase";
+type DBArticle={id:string;slug:string;title:string;category:string;excerpt:string;body:string;image_url:string|null;published_at:string|null};type Comment={id:string;user_id:string;body:string;created_at:string};
+export default function BacaArtikelPage(){const {slug}=useParams<{slug:string}>();const router=useRouter();const staticArticle=articles.find(a=>a.slug===slug);const [dbArticle,setDbArticle]=useState<DBArticle|null>(null);const [comments,setComments]=useState<Comment[]>([]);const [canComment,setCanComment]=useState(false);const [comment,setComment]=useState("");const [userId,setUserId]=useState("");const [notice,setNotice]=useState("");const [loading,setLoading]=useState(true);
+useEffect(()=>{let active=true;(async()=>{try{const db=getSupabase();const [{data:article},{data:{user}}]=await Promise.all([db.from("articles").select("id,slug,title,category,excerpt,body,image_url,published_at").eq("slug",slug).eq("status","published").maybeSingle(),db.auth.getUser()]);if(!active)return;if(article)setDbArticle(article);if(user){setUserId(user.id);const {data:profile}=await db.from("profiles").select("user_type").eq("id",user.id).maybeSingle();if(active)setCanComment(Boolean(profile&&profile.user_type!=="expert"))}if(article){const {data}=await db.from("article_comments").select("id,user_id,body,created_at").eq("article_id",article.id).order("created_at",{ascending:false});if(active)setComments(data||[])}}catch{}finally{if(active)setLoading(false)}})();return()=>{active=false}},[slug]);
+const article=dbArticle?{title:dbArticle.title,category:dbArticle.category,date:dbArticle.published_at?new Date(dbArticle.published_at).toLocaleDateString("id-ID",{day:"numeric",month:"long",year:"numeric"}):"Artikel SehatiKan",excerpt:dbArticle.excerpt,image:dbArticle.image_url||"/assets/beranda-underwater.png",position:"center",paragraphs:dbArticle.body.split(/\n\s*\n/).filter(Boolean)}:staticArticle;
+async function submitComment(e:FormEvent){e.preventDefault();if(!dbArticle||!userId)return;const body=comment.trim();if(!body)return;const {error}=await getSupabase().from("article_comments").insert({article_id:dbArticle.id,user_id:userId,body});if(error){setNotice(error.message);return}setComment("");setNotice("Komentar berhasil ditambahkan.");const {data}=await getSupabase().from("article_comments").select("id,user_id,body,created_at").eq("article_id",dbArticle.id).order("created_at",{ascending:false});setComments(data||[])}
+if(!article)return <main className="article-not-found"><h1>Artikel tidak ditemukan</h1><button className="primary" onClick={()=>router.push("/artikel")}>Kembali ke Artikel</button></main>;
+return <><AppNav active="artikel"/><main className="read-article-page"><header className="read-article-header"><button className="back-button" onClick={()=>router.push("/artikel")} aria-label="Kembali">←</button><span>Artikel</span><button className="article-brand" onClick={()=>router.push("/beranda")} aria-label="Ke Beranda"><img src="/assets/fish-mascot.png" alt=""/><strong>Sehati<span>Kan</span></strong></button></header><article className="article-content"><div className="read-article-image" style={{backgroundImage:`url("${article.image}")`,backgroundPosition:article.position}}/><div className="article-content-inner"><span className="article-category-label">{article.category}</span><h1>{article.title}</h1><p className="article-date">{article.date} · 4 menit membaca</p><p className="article-lead">{article.excerpt}</p>{article.paragraphs.map((paragraph,index)=><p key={index}>{paragraph}</p>)}<aside className="article-disclaimer">Informasi ini bersifat edukatif dan bukan pengganti diagnosis atau saran dari ahli kesehatan ikan.</aside>{dbArticle&&<section className="article-comments"><h2>Komentar pembaca</h2>{loading?<p>Memuat komentar…</p>:comments.length?comments.map(c=><article key={c.id}><b>{c.user_id===userId?"Anda":"Pengguna SehatiKan"}</b><small>{new Date(c.created_at).toLocaleString("id-ID",{dateStyle:"medium",timeStyle:"short"})}</small><p>{c.body}</p></article>):<p>Belum ada komentar. Jadilah yang pertama berbagi.</p>}{canComment?<form onSubmit={submitComment}><label>Tulis komentar<textarea value={comment} onChange={e=>setComment(e.target.value)} maxLength={3000} required placeholder="Bagikan pertanyaan atau pengalaman…"/></label>{notice&&<small>{notice}</small>}<button className="primary">Kirim Komentar</button></form>:userId?<p>Akun ahli dapat membaca artikel, tetapi komentar hanya tersedia untuk akun pengguna.</p>:<button className="outline-button" onClick={()=>router.push("/")}>Masuk untuk berkomentar</button>}</section>}<button className="back-to-articles" onClick={()=>router.push("/artikel")}>← Kembali ke daftar artikel</button></div></article></main></>}

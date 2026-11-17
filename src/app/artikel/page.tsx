@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { articles } from "@/lib/articles";
 import AppNav from "@/components/AppNav";
+import { getSupabase } from "@/lib/supabase";
 
 const categories = ["Semua", "Kesehatan ikan", "Kualitas Air", "Perawatan"] as const;
 
@@ -12,12 +13,15 @@ export default function ArtikelPage() {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<(typeof categories)[number]>("Semua");
   const [showAll, setShowAll] = useState(false);
+  const [databaseArticles,setDatabaseArticles]=useState<typeof articles>([]);
+  useEffect(()=>{let active=true;getSupabase().from("articles").select("slug,title,category,excerpt,image_url,published_at").eq("status","published").order("published_at",{ascending:false}).then(({data})=>{if(active&&data)setDatabaseArticles(data.map(a=>({slug:a.slug,title:a.title,category:a.category,excerpt:a.excerpt,image:a.image_url||"/assets/beranda-underwater.png",position:"center",date:a.published_at?new Date(a.published_at).toLocaleDateString("id-ID",{day:"numeric",month:"short",year:"numeric"}):"Baru",paragraphs:[]} as (typeof articles)[number])))},()=>{});return()=>{active=false}},[]);
+  const allArticles=[...databaseArticles,...articles.filter(a=>!databaseArticles.some(db=>db.slug===a.slug))];
 
-  const filtered = useMemo(() => articles.filter((article) => {
+  const filtered = useMemo(() => allArticles.filter((article) => {
     const matchesCategory = category === "Semua" || article.category === category;
     const text = `${article.title} ${article.category} ${article.excerpt}`.toLocaleLowerCase("id");
     return matchesCategory && text.includes(query.trim().toLocaleLowerCase("id"));
-  }), [category, query]);
+  }), [category, query, databaseArticles]);
   const visible = showAll || query || category !== "Semua" ? filtered : filtered.slice(0, 3);
 
   return <><AppNav active="artikel"/><main className="article-page">

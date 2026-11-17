@@ -34,7 +34,7 @@ as $$
 declare
   account_type text := coalesce(new.raw_user_meta_data ->> 'user_type', 'beginner');
   account_name text := coalesce(new.raw_user_meta_data ->> 'full_name', split_part(new.email, '@', 1));
-begin
+begin 
   insert into public.profiles (id, full_name, user_type)
   values (new.id, account_name, account_type)
   on conflict (id) do update set full_name = excluded.full_name, user_type = excluded.user_type;

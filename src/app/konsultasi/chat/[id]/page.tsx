@@ -1,60 +1,17 @@
 "use client";
-import { FormEvent, useCallback, useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import {FormEvent,useCallback,useEffect,useState} from "react";
+import {useParams,useRouter} from "next/navigation";
 import AppNav from "@/components/AppNav";
-import { getSupabase } from "@/lib/supabase";
-
-type Message = { id: string; sender_id: string; sender_role: "user" | "expert"; body: string; created_at: string };
-type Session = { id: string; user_id: string; expert_user_id: string; complaint: string; fish_context: Record<string, string>; status: string };
-
-export default function FarmerConsultationChat() {
-  const { id } = useParams<{ id: string }>();
-  const router = useRouter();
-  const [session, setSession] = useState<Session | null>(null);
-  const [expertName, setExpertName] = useState("Ahli SehatiKan");
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [userId, setUserId] = useState("");
-  const [draft, setDraft] = useState("");
-  const [error, setError] = useState("");
-  const [sending, setSending] = useState(false);
-
-  const loadMessages = useCallback(async () => {
-    const db = getSupabase();
-    const { data, error: loadError } = await db.from("consultation_messages").select("id,sender_id,sender_role,body,created_at").eq("consultation_id", id).order("created_at");
-    if (loadError) setError(loadError.message); else setMessages(data || []);
-  }, [id]);
-
-  useEffect(() => {
-    let channel: ReturnType<ReturnType<typeof getSupabase>["channel"]> | undefined;
-    let live = true;
-    (async () => {
-      try {
-        const db = getSupabase();
-        const { data: auth } = await db.auth.getUser();
-        if (!auth.user) { router.replace("/"); return; }
-        if (!live) return;
-        setUserId(auth.user.id);
-        const { data, error: sessionError } = await db.from("consultations").select("id,user_id,expert_user_id,complaint,fish_context,status").eq("id", id).single();
-        if (sessionError) throw sessionError;
-        setSession(data);
-        const { data: expert } = await db.from("expert_profiles").select("full_name").eq("user_id", data.expert_user_id).maybeSingle();
-        if (expert?.full_name) setExpertName(expert.full_name);
-        await loadMessages();
-        channel = db.channel(`consultation-${id}`).on("postgres_changes", { event: "*", schema: "public", table: "consultation_messages", filter: `consultation_id=eq.${id}` }, () => { void loadMessages(); }).subscribe();
-      } catch (e) { if (live) setError(e instanceof Error ? e.message : "Percakapan tidak dapat dimuat."); }
-    })();
-    return () => { live = false; if (channel) void getSupabase().removeChannel(channel); };
-  }, [id, loadMessages, router]);
-
-  async function send(e: FormEvent) {
-    e.preventDefault(); const body = draft.trim();
-    if (!body || !userId || sending || session?.status === "completed") return;
-    setSending(true); setError("");
-    const { error: sendError } = await getSupabase().from("consultation_messages").insert({ consultation_id: id, sender_id: userId, sender_role: "user", body });
-    if (sendError) setError(sendError.message); else { setDraft(""); await loadMessages(); }
-    setSending(false);
-  }
-
-  const fish = session?.fish_context?.pond || "Data ikan";
-  return <><AppNav active="konsultasi"/><main className="live-chat-page"><button className="profile-back" onClick={() => router.push("/riwayat")}>← Kembali</button><header className="live-chat-header"><span className="expert-avatar-placeholder">♟</span><span><h1>{expertName}</h1><small>Ahli kesehatan ikan · {session?.status === "completed" ? "Sesi selesai" : "Konsultasi aktif"}</small></span></header><section className="live-chat-context"><strong>{fish}</strong><small>{session?.complaint || "Memuat ringkasan konsultasi…"}</small></section><p className="live-chat-disclaimer">Percakapan langsung antara Anda dan ahli. Informasi ahli bukan pengganti pemeriksaan langsung.</p><section className="live-chat-messages" aria-live="polite">{messages.map(m=><article key={m.id} className={`live-chat-bubble ${m.sender_id === userId ? "mine" : "theirs"}`}><small>{m.sender_id === userId ? "Anda" : expertName} · {new Date(m.created_at).toLocaleTimeString("id-ID", {hour:"2-digit",minute:"2-digit"})}</small><p>{m.body}</p></article>)}{!messages.length&&<p className="sample-note">Mulai percakapan dengan mengirim pesan kepada ahli.</p>}</section>{error&&<p className="feedback">{error}</p>}<form className="live-chat-composer" onSubmit={send}><input value={draft} onChange={e=>setDraft(e.target.value)} placeholder={session?.status === "completed" ? "Sesi ini telah selesai" : "Tulis pesan…"} disabled={session?.status === "completed"}/><button className="primary" disabled={sending||!draft.trim()||session?.status === "completed"}>{sending?"…":"Kirim"}</button></form></main></>;
-}
+import {getSupabase,supabaseErrorMessage} from "@/lib/supabase";
+import {chatDayLabel} from "@/lib/chat";
+type Message={id:string;sender_id:string;sender_role:"user"|"expert";body:string;created_at:string;image_path:string|null;image_name:string|null;image_url?:string};
+type Session={id:string;user_id:string;expert_user_id:string;complaint:string;fish_context:Record<string,string>;status:string;payment_status:string;payment_timing:"before"|"after";completion_requested:boolean};
+type Expert={full_name:string;specialty:string;qualification:string;bio:string;experience_years:number|null;consultation_fee:number|null;avatar_path:string|null};
+export default function FarmerConsultationChat(){const {id}=useParams<{id:string}>();const router=useRouter();const [session,setSession]=useState<Session|null>(null);const [expert,setExpert]=useState<Expert|null>(null);const [messages,setMessages]=useState<Message[]>([]);const [userId,setUserId]=useState("");const [draft,setDraft]=useState("");const [photo,setPhoto]=useState<File|null>(null);const [preview,setPreview]=useState("");const [avatar,setAvatar]=useState("");const [profileOpen,setProfileOpen]=useState(false);const [reporting,setReporting]=useState(false);const [reportReason,setReportReason]=useState("");const [error,setError]=useState("");const [sending,setSending]=useState(false);
+const loadMessages=useCallback(async()=>{const db=getSupabase();const {data,error}=await db.from("consultation_messages").select("id,sender_id,sender_role,body,created_at,image_path,image_name").eq("consultation_id",id).order("created_at");if(error){setError(error.message);return}const rows=await Promise.all((data||[]).map(async m=>({...m,image_url:m.image_path?(await db.storage.from("consultation-images").createSignedUrl(m.image_path,3600)).data?.signedUrl:undefined})));setMessages(rows as Message[])},[id]);
+useEffect(()=>{let channel:ReturnType<ReturnType<typeof getSupabase>["channel"]>|undefined;let live=true;(async()=>{try{const db=getSupabase();const {data:{user}}=await db.auth.getUser();if(!user){router.replace("/");return}if(!live)return;setUserId(user.id);const {data,error}=await db.from("consultations").select("id,user_id,expert_user_id,complaint,fish_context,status,payment_status,payment_timing,completion_requested").eq("id",id).single();if(error)throw error;setSession(data);const {data:ex}=await db.from("expert_profiles").select("full_name,specialty,qualification,bio,experience_years,consultation_fee,avatar_path").eq("user_id",data.expert_user_id).maybeSingle();if(ex){setExpert(ex);if(ex.avatar_path){const {data:signed}=await db.storage.from("profile-avatars").createSignedUrl(ex.avatar_path,3600);if(signed?.signedUrl)setAvatar(signed.signedUrl)}}await loadMessages();channel=db.channel(`consultation-${id}`).on("postgres_changes",{event:"*",schema:"public",table:"consultation_messages",filter:`consultation_id=eq.${id}`},()=>void loadMessages()).on("postgres_changes",{event:"UPDATE",schema:"public",table:"consultations",filter:`id=eq.${id}`},payload=>{const next=payload.new as Session;setSession(next);if(next.status==="completed")window.alert("Konsultasi telah selesai. Riwayat chat tetap dapat dibaca.")}).subscribe()}catch(e){if(live)setError(supabaseErrorMessage(e,"Percakapan tidak dapat dimuat."))}})();return()=>{live=false;if(channel)void getSupabase().removeChannel(channel)}},[id,loadMessages,router]);
+function choosePhoto(file?:File){if(!file)return;if(!file.type.startsWith("image/")||file.size>6*1024*1024){setError("Pilih gambar maksimal 6 MB.");return}setPhoto(file);setPreview(URL.createObjectURL(file));setError("")}
+async function send(e:FormEvent){e.preventDefault();const body=draft.trim();if((!body&&!photo)||!userId||sending||session?.status==="completed")return;if(session?.payment_status!=="paid"&&session?.payment_timing!=="after"){setError("Sesi chat akan terbuka setelah pembayaran terkonfirmasi.");return}setSending(true);setError("");const db=getSupabase();let path:string|null=null;try{if(photo){const safeName=photo.name.replace(/[^a-zA-Z0-9._-]/g,"-");path=`${id}/${userId}/${Date.now()}-${safeName}`;const {error}=await db.storage.from("consultation-images").upload(path,photo,{contentType:photo.type,upsert:false});if(error)throw error}const {error}=await db.from("consultation_messages").insert({consultation_id:id,sender_id:userId,sender_role:"user",body:body||"",image_path:path,image_name:photo?.name||null});if(error)throw error;setDraft("");setPhoto(null);setPreview("");await loadMessages()}catch(e){if(path)await db.storage.from("consultation-images").remove([path]);setError(e instanceof Error?e.message:"Pesan gagal dikirim.")}finally{setSending(false)}}
+async function submitReport(){if(reportReason.trim().length<5){setError("Jelaskan laporan minimal 5 karakter.");return}const {error}=await getSupabase().from("user_reports").insert({reporter_id:userId,subject_id:session?.expert_user_id,consultation_id:id,reason:reportReason.trim()});if(error)setError(error.message);else{setReporting(false);setReportReason("");setError("Laporan berhasil dikirim ke admin untuk ditinjau.")}}
+const fish=session?.fish_context?.pond||"Data ikan";let previousDay="";
+return <><AppNav active="konsultasi"/><main className="live-chat-page"><button className="profile-back" onClick={()=>router.push("/riwayat")}>← Kembali</button><header className="live-chat-header"><button className="chat-profile-trigger" onClick={()=>setProfileOpen(true)} aria-label="Lihat profil ahli"><span className="expert-avatar-placeholder">{avatar?<img src={avatar} alt=""/>:expert?.full_name.split(/\s+/).slice(0,2).map(x=>x[0]).join("").toUpperCase()||"AH"}</span><span><h1>{expert?.full_name||"Ahli SehatiKan"}</h1><small>{expert?.specialty||"Ahli kesehatan ikan"} · {session?.status==="completed"?"Sesi selesai":"Konsultasi aktif"} · ketuk untuk profil</small></span></button></header><section className="live-chat-context"><strong>{fish}</strong><small>{session?.complaint||"Memuat ringkasan konsultasi…"}</small></section><p className="live-chat-disclaimer">Percakapan langsung antara Anda dan ahli. Informasi ahli bukan pengganti pemeriksaan langsung.</p>{session?.payment_status!=="paid"&&session?.payment_timing!=="after"&&<aside className="chat-payment-gate"><strong>Pembayaran belum terkonfirmasi</strong><p>Chat sesi ini terkunci sampai pembayaran ahli berhasil.</p><button onClick={()=>router.push(`/pembayaran/${id}`)}>Lihat pembayaran</button></aside>}{session?.payment_timing==="after"&&session?.completion_requested&&session?.payment_status!=="paid"&&<aside className="chat-payment-gate"><strong>Ahli mengajukan penutupan sesi</strong><p>Bayar tagihan agar ahli dapat mengakhiri konsultasi.</p><button onClick={()=>router.push(`/pembayaran/${id}`)}>Bayar Tagihan</button></aside>}<section className="live-chat-messages" aria-live="polite">{messages.map(m=>{const day=chatDayLabel(m.created_at);const show=day!==previousDay;previousDay=day;return <div className="chat-message-group" key={m.id}>{show&&<div className="chat-day-separator"><span>{day}</span></div>}<article className={`live-chat-bubble ${m.sender_id===userId?"mine":"theirs"}`}><small>{m.sender_id===userId?"Anda":expert?.full_name||"Ahli"} · {new Date(m.created_at).toLocaleTimeString("id-ID",{hour:"2-digit",minute:"2-digit"})}</small>{m.body&&<p>{m.body}</p>}{m.image_url&&<a href={m.image_url} target="_blank" rel="noreferrer"><img className="chat-attachment" src={m.image_url} alt={m.image_name||"Lampiran chat"}/></a>}{m.image_name&&<small className="chat-image-caption">📷 {m.image_name}</small>}</article></div>})}{!messages.length&&<p className="sample-note">Mulai percakapan dengan mengirim pesan atau foto kondisi ikan.</p>}</section>{error&&<p className="feedback">{error}</p>}{preview&&<div className="chat-photo-preview"><img src={preview} alt="Pratinjau lampiran"/><button type="button" onClick={()=>{setPhoto(null);setPreview("")}}>×</button></div>}<form className="live-chat-composer" onSubmit={send}><label className="chat-attach-button" title="Lampirkan foto">＋<input type="file" accept="image/*" onChange={e=>choosePhoto(e.target.files?.[0])} hidden/></label><input value={draft} onChange={e=>setDraft(e.target.value)} placeholder={session?.status==="completed"?"Sesi ini telah selesai":session?.payment_timing==="after"?"Tulis pesan…":session?.payment_status!=="paid"?"Selesaikan pembayaran untuk chat":"Tulis pesan…"} disabled={session?.status==="completed"||(session?.payment_status!=="paid"&&session?.payment_timing!=="after")}/><button className="primary" disabled={sending||(!draft.trim()&&!photo)||session?.status==="completed"||(session?.payment_status!=="paid"&&session?.payment_timing!=="after")}>{sending?"…":"Kirim"}</button></form>{profileOpen&&expert&&<div className="history-overlay" onClick={()=>setProfileOpen(false)}><section className="history-dialog expert-mini-profile" role="dialog" aria-modal="true" onClick={e=>e.stopPropagation()}><button className="history-dialog-close" onClick={()=>setProfileOpen(false)}>×</button><span className="expert-avatar-placeholder">{avatar?<img src={avatar} alt=""/>:expert.full_name.split(/\s+/).slice(0,2).map(x=>x[0]).join("").toUpperCase()}</span><h2>{expert.full_name}</h2><b>{expert.specialty}</b><p>{expert.qualification||"Kualifikasi belum dicantumkan"}{expert.experience_years!=null?` · Pengalaman ${expert.experience_years} tahun`:""}</p><p>{expert.bio||"Profil ahli kesehatan ikan."}</p><strong>Tarif sesi: {expert.consultation_fee!=null?`Rp${expert.consultation_fee.toLocaleString("id-ID")}`:"Belum tersedia"}</strong><button className="primary" onClick={()=>router.push(`/konsultasi/ahli/${session?.expert_user_id}`)}>Lihat profil ahli</button>{reporting?<div className="report-form"><label>Alasan laporan<textarea value={reportReason} onChange={e=>setReportReason(e.target.value)} minLength={5} maxLength={2000}/></label><button className="primary" onClick={()=>void submitReport()}>Kirim laporan ke admin</button></div>:<button className="outline-button" onClick={()=>setReporting(true)}>Laporkan ahli</button>}</section></div>}</main></>}

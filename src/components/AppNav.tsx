@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import NotificationBell from "@/components/NotificationBell";
 
 type Section = "beranda" | "artikel" | "konsultasi" | "riwayat" | "profil";
 const entries: { id: Section; label: string; icon: string; href: string }[] = [
@@ -14,9 +15,10 @@ const entries: { id: Section; label: string; icon: string; href: string }[] = [
 export default function AppNav({ active }: { active: Section }) {
   const router = useRouter();
   return <>
+    <div className="mobile-notification"><NotificationBell/></div>
     <aside className="app-sidebar">
       <button className="sidebar-brand" onClick={() => router.push("/beranda")}><img src="/assets/fish-mascot.png" alt=""/><span>Sehati<span>Kan</span></span></button>
-      <span className="sidebar-label">MENU UTAMA</span>
+      <div className="sidebar-notification-row"><span className="sidebar-label">MENU UTAMA</span><NotificationBell/></div>
       <nav>{entries.map((entry) => <button key={entry.id} className={active === entry.id ? "sidebar-link active" : "sidebar-link"} onClick={() => router.push(entry.href)}><span className="sidebar-icon">{entry.icon}</span>{entry.label}</button>)}</nav>
       <div className="sidebar-help"><strong>Pusat bantuan</strong><p>Panduan menggunakan SehatiKan.</p><button onClick={() => router.push("/profil#bantuan")}>Buka panduan →</button></div>
       <div className="sidebar-foot"><span className="sidebar-avatar">SK</span><span><strong>SehatiKan</strong><small>Teman kesehatan ikan</small></span></div>
