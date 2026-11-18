@@ -2,7 +2,7 @@
 
 Checkout menggunakan Midtrans Snap. Kode pembayaran sudah berada di server route; pembayaran belum dapat hidup sampai project memakai environment variable dan webhook yang valid.
 
-1. Terapkan `supabase/SETUP_SEHATIKAN.sql` pada project Supabase yang benar (migrasi 001–009).
+1. Terapkan `supabase/SETUP_SEHATIKAN.sql` pada project Supabase yang benar (migrasi 001–010).
 2. Buat/aktifkan akun merchant Midtrans. Mulai dengan Sandbox untuk uji coba.
 3. Tambahkan environment variable server:
    - `SUPABASE_SERVICE_ROLE_KEY` (server only, jangan gunakan awalan `NEXT_PUBLIC_`)
@@ -11,6 +11,19 @@ Checkout menggunakan Midtrans Snap. Kode pembayaran sudah berada di server route
    - `NEXT_PUBLIC_APP_URL` sesuai URL aplikasi.
 4. Di dashboard Midtrans, set HTTP Notification URL menjadi `https://<domain-aplikasi>/api/payments/midtrans/webhook`.
 5. Restart aplikasi. Transaksi baru dibuat lewat `/pembayaran/[id]`; sesi hanya aktif setelah webhook terverifikasi. Uji Sandbox dengan kredensial Sandbox dan webhook yang dapat diakses dari internet, lalu ganti ke kunci produksi hanya setelah pengujian selesai.
+
+## Langkah membayar dengan berbagai aplikasi
+
+1. Di invoice konsultasi, tekan **Bayar Sekarang**. Aplikasi membuka halaman checkout Midtrans; metode pembayaran yang benar-benar tersedia ditentukan oleh aktivasi dan konfigurasi akun merchant.
+2. Pilih salah satu metode yang tampil:
+   - **QRIS:** tampilkan kode QR, lalu pindai dari aplikasi bank atau dompet digital yang mendukung QRIS dan konfirmasi.
+   - **Dompet digital** (misalnya GoPay, DANA, atau ShopeePay jika tersedia): pilih penyedia, lanjutkan ke aplikasi terkait, dan setujui transaksi di sana.
+   - **Transfer bank/virtual account:** pilih bank, salin nomor virtual account, lalu bayar melalui mobile banking, internet banking, atau ATM sebelum batas waktu.
+   - **Kartu atau metode lain:** ikuti instruksi checkout dan konfirmasi hanya di halaman/aplikasi penyedia resmi.
+3. Kembali ke SehatiKan. Status berubah setelah webhook Midtrans terverifikasi; jangan menganggap transaksi lunas hanya karena halaman checkout ditutup atau tangkapan layar menunjukkan pembayaran.
+4. Jika status masih menunggu, cek riwayat transaksi dan gunakan **Lanjut bayar** untuk transaksi pending. Hindari membayar dua kali. Jika status belum berubah setelah beberapa menit, hubungi dukungan dengan nomor invoice.
+
+Nama metode, aplikasi yang didukung, dan langkah konfirmasi dapat berbeda sesuai konfigurasi merchant Midtrans. Aplikasi tidak meminta PIN/OTP dan tidak menerima pembayaran ke rekening pribadi.
 
 Jika checkout menampilkan konfigurasi belum tersedia, pastikan semua variable di atas dipasang pada environment server yang menjalankan Next.js (bukan hanya `.env.local` saat deploy), lalu redeploy/restart. Jangan mengirim `SUPABASE_SERVICE_ROLE_KEY` atau `MIDTRANS_SERVER_KEY` ke browser maupun chat.
 

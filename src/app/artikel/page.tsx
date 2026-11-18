@@ -6,16 +6,16 @@ import { articles } from "@/lib/articles";
 import AppNav from "@/components/AppNav";
 import { getSupabase } from "@/lib/supabase";
 
-const categories = ["Semua", "Kesehatan ikan", "Kualitas Air", "Perawatan"] as const;
-
 export default function ArtikelPage() {
   const router = useRouter();
   const [query, setQuery] = useState("");
-  const [category, setCategory] = useState<(typeof categories)[number]>("Semua");
+  const [category, setCategory] = useState("Semua");
   const [showAll, setShowAll] = useState(false);
   const [databaseArticles,setDatabaseArticles]=useState<typeof articles>([]);
-  useEffect(()=>{let active=true;getSupabase().from("articles").select("slug,title,category,excerpt,image_url,published_at").eq("status","published").order("published_at",{ascending:false}).then(({data})=>{if(active&&data)setDatabaseArticles(data.map(a=>({slug:a.slug,title:a.title,category:a.category,excerpt:a.excerpt,image:a.image_url||"/assets/beranda-underwater.png",position:"center",date:a.published_at?new Date(a.published_at).toLocaleDateString("id-ID",{day:"numeric",month:"short",year:"numeric"}):"Baru",paragraphs:[]} as (typeof articles)[number])))},()=>{});return()=>{active=false}},[]);
+  const [loadError,setLoadError]=useState("");
+  useEffect(()=>{let active=true;void(async()=>{try{const {data,error}=await getSupabase().from("articles").select("slug,title,category,excerpt,image_url,published_at").eq("status","published").order("published_at",{ascending:false});if(error)throw error;if(active&&data)setDatabaseArticles(data.map(a=>({slug:a.slug,title:a.title,category:a.category,excerpt:a.excerpt,image:a.image_url||"/assets/beranda-underwater.png",position:"center",date:a.published_at?new Date(a.published_at).toLocaleDateString("id-ID",{day:"numeric",month:"short",year:"numeric"}):"Baru",paragraphs:[]} as (typeof articles)[number])))}catch(e){if(active)setLoadError(e instanceof Error?e.message:"Artikel gagal dimuat.")}})();return()=>{active=false}},[]);
   const allArticles=[...databaseArticles,...articles.filter(a=>!databaseArticles.some(db=>db.slug===a.slug))];
+  const categoryOptions=useMemo(()=>["Semua",...Array.from(new Set(allArticles.map(article=>article.category)))],[databaseArticles]);
 
   const filtered = useMemo(() => allArticles.filter((article) => {
     const matchesCategory = category === "Semua" || article.category === category;
@@ -35,11 +35,12 @@ export default function ArtikelPage() {
     <section className="article-tools" aria-label="Cari dan filter artikel">
       <label className="article-search"><span aria-hidden="true">⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari Artikel..." aria-label="Cari artikel"/><button type="button" onClick={() => setQuery("")} aria-label="Hapus pencarian" hidden={!query}>×</button></label>
       <div className="category-chips" role="group" aria-label="Filter kategori">
-        {categories.map((item) => <button key={item} className={`category-chip ${category === item ? "selected" : ""}`} aria-pressed={category === item} onClick={() => setCategory(item)}>{item}</button>)}
+        {categoryOptions.map((item) => <button key={item} className={`category-chip ${category === item ? "selected" : ""}`} aria-pressed={category === item} onClick={() => setCategory(item)}>{item}</button>)}
       </div>
     </section>
 
     <section className="article-results">
+      {loadError&&<p className="sample-note" role="alert">{loadError}</p>}
       <div className="article-section-heading"><h2>{query || category !== "Semua" ? "Hasil Artikel" : showAll ? "Semua Artikel" : "Artikel Populer"}</h2>
         {!query && category === "Semua" && <button onClick={() => setShowAll((value) => !value)}>{showAll ? "Tampilkan populer" : "Lihat semua"}</button>}
       </div>

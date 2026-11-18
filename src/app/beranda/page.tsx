@@ -2,8 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@supabase/supabase-js";
 import AppNav from "@/components/AppNav";
+import { articles as sampleArticles } from "@/lib/articles";
+import { getSupabase, supabaseErrorMessage } from "@/lib/supabase";
+
+type HomeArticle = { slug:string;title:string;excerpt:string;image:string;date:string };
 
 function Icon({ name }: { name: "home" | "book" | "chat" | "history" | "profile" | "arrow" }) {
   const common = { width: 23, height: 23, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true as const };
@@ -21,26 +24,49 @@ function Icon({ name }: { name: "home" | "book" | "chat" | "history" | "profile"
 export default function Beranda() {
   const router = useRouter();
   const [name, setName] = useState("Teman Ikan");
+  const [articleCards, setArticleCards] = useState<HomeArticle[]>(sampleArticles.slice(0, 3));
+  const [articleError, setArticleError] = useState("");
 
   useEffect(() => {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
-    if (!url || !key) return;
-    const supabase = createClient(url, key);
-    supabase.auth.getSession().then(({ data }) => {
-      if (!data.session) {
-        router.replace("/");
-        return;
+    let active = true;
+    void (async () => {
+      try {
+        const db = getSupabase();
+        const [{ data: { session } }, { data, error }] = await Promise.all([
+          db.auth.getSession(),
+          db.from("articles").select("slug,title,excerpt,image_url,published_at").eq("status", "published").order("published_at", { ascending: false }).limit(3),
+        ]);
+        if (!active) return;
+        if (!session) {
+          router.replace("/");
+          return;
+        }
+        const fullName = session.user.user_metadata?.full_name;
+        setName(fullName || session.user.email?.split("@")[0] || "Teman Ikan");
+        if (error) {
+          setArticleError(supabaseErrorMessage(error, "Artikel terbaru gagal dimuat."));
+          return;
+        }
+        const published: HomeArticle[] = (data || []).map(article => ({
+          slug: article.slug,
+          title: article.title,
+          excerpt: article.excerpt,
+          image: article.image_url || "/assets/beranda-underwater.png",
+          date: article.published_at ? new Date(article.published_at).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" }) : "Artikel SehatiKan",
+        }));
+        const latest = [...published, ...sampleArticles.filter(article => !published.some(item => item.slug === article.slug)).map(article => ({
+          slug: article.slug, title: article.title, excerpt: article.excerpt, image: article.image, date: article.date,
+        }))].slice(0, 3);
+        setArticleCards(latest);
+      } catch (error) {
+        if (active) setArticleError(supabaseErrorMessage(error, "Artikel terbaru gagal dimuat."));
       }
-      const fullName = data.session.user.user_metadata?.full_name;
-      setName(fullName || data.session.user.email?.split("@")[0] || "Teman Ikan");
-    });
+    })();
+    return () => { active = false; };
   }, [router]);
 
   async function logout() {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
-    if (url && key) await createClient(url, key).auth.signOut();
+    await getSupabase().auth.signOut();
     router.replace("/");
   }
 
@@ -69,7 +95,8 @@ export default function Beranda() {
     </section>
 
     <section className="articles-section"><div className="section-heading"><h2>Artikel Terbaru</h2><button onClick={() => router.push("/artikel")}>Lihat semua</button></div>
-      <button className="article-card" onClick={() => router.push("/artikel/mencegah-penyakit-koi")}><img src="/assets/beranda-underwater.png" alt="Ikan koi di bawah air" /><span><strong>Cara Mencegah Penyakit pada Ikan Koi</strong><small>12 Oktober 2026</small></span></button>
+      {articleError&&<p className="feedback">{articleError}</p>}
+      {articleCards.map(article=><button className="article-card" key={article.slug} onClick={() => router.push(`/artikel/${article.slug}`)}><img src={article.image} alt="" /><span><strong>{article.title}</strong><small>{article.date}</small><small>{article.excerpt}</small></span></button>)}
     </section>
     </div>
 
